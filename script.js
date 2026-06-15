@@ -405,9 +405,10 @@ function hideSuggestions() {
 
 async function calculateMatchup(typeNames) {
   const defensiveMultipliers = createTypeMultiplierMap();
-  const offensiveStrong = new Set();
-  const offensiveWeak = new Set();
-  const offensiveNoEffect = new Set();
+  const offensiveMultipliers = createTypeMultiplierMap(0);
+  const offensiveBestTypes = Object.fromEntries(
+    Object.keys(typeLabels).map((typeName) => [typeName, []])
+  );
   const typeDetails = await Promise.all(typeNames.map(fetchType));
 
   typeDetails.forEach((typeDetail) => {
@@ -421,14 +422,29 @@ async function calculateMatchup(typeNames) {
       defensiveMultipliers[name] *= 0;
     });
 
+    const attackTypeName = typeDetail.name;
+    const attackMultipliers = createTypeMultiplierMap();
+
     typeDetail.damage_relations.double_damage_to.forEach(({ name }) => {
-      offensiveStrong.add(name);
+      attackMultipliers[name] = 2;
     });
     typeDetail.damage_relations.half_damage_to.forEach(({ name }) => {
-      offensiveWeak.add(name);
+      attackMultipliers[name] = 0.5;
     });
     typeDetail.damage_relations.no_damage_to.forEach(({ name }) => {
-      offensiveNoEffect.add(name);
+      attackMultipliers[name] = 0;
+    });
+
+    Object.entries(attackMultipliers).forEach(([defenseTypeName, multiplier]) => {
+      if (multiplier > offensiveMultipliers[defenseTypeName]) {
+        offensiveMultipliers[defenseTypeName] = multiplier;
+        offensiveBestTypes[defenseTypeName] = [attackTypeName];
+        return;
+      }
+
+      if (multiplier === offensiveMultipliers[defenseTypeName]) {
+        offensiveBestTypes[defenseTypeName].push(attackTypeName);
+      }
     });
   });
 
@@ -439,12 +455,30 @@ async function calculateMatchup(typeNames) {
       resistance: pickTypes(defensiveMultipliers, (value) => value > 0 && value < 1),
       immune: pickTypes(defensiveMultipliers, (value) => value === 0),
     },
-    offense: {
-      strong: sortTypeNames(offensiveStrong),
-      weak: sortTypeNames(offensiveWeak),
-      noEffect: sortTypeNames(offensiveNoEffect),
-    },
+    offense: summarizeBestOffense(offensiveMultipliers, offensiveBestTypes),
   };
+}
+
+function summarizeBestOffense(multipliers, bestTypes) {
+  const markers = createBestAttackTypeMarkers(bestTypes);
+
+  return {
+    strong: pickTypes(multipliers, (value) => value > 1),
+    weak: pickTypes(multipliers, (value) => value > 0 && value < 1),
+    noEffect: pickTypes(multipliers, (value) => value === 0),
+    markers,
+  };
+}
+
+function createBestAttackTypeMarkers(bestTypes) {
+  return Object.fromEntries(
+    Object.entries(bestTypes).map(([defenseTypeName, attackTypeNames]) => [
+      defenseTypeName,
+      sortTypeNames(attackTypeNames)
+        .map((typeName) => typeLabels[typeName] ?? typeName)
+        .join("/") || "-",
+    ])
+  );
 }
 
 function createTypeMultiplierMap(initialValue = 1) {
@@ -496,9 +530,15 @@ function renderPokemon(pokemon, species, typeNames, matchup) {
   });
   renderTypeChips(resistanceList, matchup.defense.resistance, "耐性なし");
   renderTypeChips(immuneList, matchup.defense.immune, "無効なし");
-  renderTypeChips(attackStrongList, matchup.offense.strong, "該当なし");
-  renderTypeChips(attackWeakList, matchup.offense.weak, "該当なし");
-  renderTypeChips(attackNoEffectList, matchup.offense.noEffect, "該当なし");
+  renderTypeChips(attackStrongList, matchup.offense.strong, "該当なし", {
+    markers: matchup.offense.markers,
+  });
+  renderTypeChips(attackWeakList, matchup.offense.weak, "該当なし", {
+    markers: matchup.offense.markers,
+  });
+  renderTypeChips(attackNoEffectList, matchup.offense.noEffect, "該当なし", {
+    markers: matchup.offense.markers,
+  });
 }
 
 function renderTypeChips(container, typeNames, emptyLabel = "", options = {}) {
