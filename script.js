@@ -405,12 +405,12 @@ function hideSuggestions() {
 
 async function calculateMatchup(typeNames) {
   const defensiveMultipliers = createTypeMultiplierMap();
-  const offensiveMultipliers = createTypeMultiplierMap(0);
+  const offensiveStrong = new Set();
+  const offensiveWeak = new Set();
+  const offensiveNoEffect = new Set();
   const typeDetails = await Promise.all(typeNames.map(fetchType));
 
   typeDetails.forEach((typeDetail) => {
-    const attackMultipliers = createTypeMultiplierMap();
-
     typeDetail.damage_relations.double_damage_from.forEach(({ name }) => {
       defensiveMultipliers[name] *= 2;
     });
@@ -422,17 +422,13 @@ async function calculateMatchup(typeNames) {
     });
 
     typeDetail.damage_relations.double_damage_to.forEach(({ name }) => {
-      attackMultipliers[name] = 2;
+      offensiveStrong.add(name);
     });
     typeDetail.damage_relations.half_damage_to.forEach(({ name }) => {
-      attackMultipliers[name] = 0.5;
+      offensiveWeak.add(name);
     });
     typeDetail.damage_relations.no_damage_to.forEach(({ name }) => {
-      attackMultipliers[name] = 0;
-    });
-
-    Object.entries(attackMultipliers).forEach(([name, value]) => {
-      offensiveMultipliers[name] = Math.max(offensiveMultipliers[name], value);
+      offensiveNoEffect.add(name);
     });
   });
 
@@ -444,9 +440,9 @@ async function calculateMatchup(typeNames) {
       immune: pickTypes(defensiveMultipliers, (value) => value === 0),
     },
     offense: {
-      strong: pickTypes(offensiveMultipliers, (value) => value > 1),
-      weak: pickTypes(offensiveMultipliers, (value) => value > 0 && value < 1),
-      noEffect: pickTypes(offensiveMultipliers, (value) => value === 0),
+      strong: sortTypeNames(offensiveStrong),
+      weak: sortTypeNames(offensiveWeak),
+      noEffect: sortTypeNames(offensiveNoEffect),
     },
   };
 }
@@ -535,6 +531,12 @@ function renderTypeChips(container, typeNames, emptyLabel = "", options = {}) {
 
     container.append(chip);
   });
+}
+
+function sortTypeNames(names) {
+  return [...names].sort((a, b) =>
+    (typeLabels[a] ?? a).localeCompare(typeLabels[b] ?? b, "ja")
+  );
 }
 
 function pickTypes(multipliers, predicate) {
